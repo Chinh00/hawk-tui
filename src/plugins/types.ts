@@ -8,6 +8,7 @@ export interface SubMenu {
 export interface ToolPluginProps {
   activeSubMenuId?: string;
   isFocused?: boolean;
+  onInputFocus?: (isFocused: boolean) => void;
 }
 
 export interface ToolPlugin {

@@ -3,6 +3,7 @@ import { Dashboard } from './Dashboard.jsx';
 import { NetworkExplorer } from './NetworkExplorer.jsx';
 import { JiraExplorer } from './JiraExplorer.jsx';
 import { GitManager } from './GitManager.jsx';
+import { MusicPlayer } from './MusicPlayer.jsx';
 
 export const plugins: ToolPlugin[] = [
   {
@@ -51,5 +52,12 @@ export const plugins: ToolPlugin[] = [
       { id: 'repos', name: 'My Repos' },
       { id: 'config', name: 'Configuration' }
     ]
+  },
+  {
+    id: 'music-player',
+    name: 'My Music',
+    category: 'Custom',
+    description: 'YouTube Music Explorer',
+    component: MusicPlayer
   }
 ];

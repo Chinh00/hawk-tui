@@ -6,9 +6,15 @@ interface MainViewProps {
   activeTool: ToolPlugin | undefined;
   activeSubMenuId?: string;
   isFocused?: boolean;
+  onInputFocus?: (isFocused: boolean) => void;
 }
 
-export const MainView: React.FC<MainViewProps> = ({ activeTool, activeSubMenuId, isFocused = false }) => {
+export const MainView: React.FC<MainViewProps> = ({ 
+  activeTool, 
+  activeSubMenuId, 
+  isFocused = false,
+  onInputFocus 
+}) => {
   if (!activeTool) {
     return (
       <Box padding={2}>
@@ -31,7 +37,11 @@ export const MainView: React.FC<MainViewProps> = ({ activeTool, activeSubMenuId,
         <Text bold color="blue">{activeTool.name}</Text>
         <Text color="gray"> - {activeTool.description}</Text>
       </Box>
-      <ToolComponent activeSubMenuId={activeSubMenuId} isFocused={isFocused} />
+      <ToolComponent 
+        activeSubMenuId={activeSubMenuId} 
+        isFocused={isFocused} 
+        onInputFocus={onInputFocus}
+      />
     </Box>
   );
 };

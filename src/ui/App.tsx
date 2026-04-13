@@ -14,6 +14,7 @@ export const App: React.FC = () => {
   const [activeSubMenuId, setActiveSubMenuId] = useState<string | undefined>(undefined);
   const [activePane, setActivePane] = useState<Pane>('SIDEBAR');
   const [showHelp, setShowHelp] = useState(false);
+  const [isInputActive, setIsInputActive] = useState(false);
 
   const activeTool = plugins.find(p => p.id === activeToolId);
 
@@ -24,9 +25,13 @@ export const App: React.FC = () => {
       setActiveSubMenuId(undefined);
     }
     setActivePane('SIDEBAR');
+    setIsInputActive(false);
   }, [activeToolId]);
 
   useInput((input, key) => {
+    // If user is typing in an input field, disable global shortcuts
+    if (isInputActive) return;
+
     if (input === 'q') {
       exit();
       return;
@@ -34,6 +39,11 @@ export const App: React.FC = () => {
 
     if (input === 'h') {
       setShowHelp(!showHelp);
+      return;
+    }
+
+    if (input === '/' && activeToolId === 'music-player') {
+      setActivePane('CONTENT');
       return;
     }
 
@@ -55,7 +65,7 @@ export const App: React.FC = () => {
     
     if (key.rightArrow) {
       if (activePane === 'SIDEBAR' && activeTool?.subMenus) setActivePane('SUB_SIDEBAR');
-      else if (activePane === 'SUB_SIDEBAR') setActivePane('CONTENT');
+      else if (activePane === 'SUB_SIDEBAR' || activePane === 'SIDEBAR') setActivePane('CONTENT');
     }
 
     if (key.leftArrow) {
@@ -78,19 +88,20 @@ export const App: React.FC = () => {
         <Sidebar 
           tools={plugins} 
           onSelect={handleSelectTool} 
-          isFocused={!showHelp && activePane === 'SIDEBAR'} 
+          isFocused={!showHelp && !isInputActive && activePane === 'SIDEBAR'} 
         />
         {activeTool?.subMenus && (
           <SubSidebar 
             subMenus={activeTool.subMenus} 
             onSelect={handleSelectSubMenu} 
-            isFocused={!showHelp && activePane === 'SUB_SIDEBAR'}
+            isFocused={!showHelp && !isInputActive && activePane === 'SUB_SIDEBAR'}
           />
         )}
         <MainView 
           activeTool={activeTool} 
           activeSubMenuId={activeSubMenuId} 
           isFocused={!showHelp && activePane === 'CONTENT'}
+          onInputFocus={setIsInputActive}
         />
       </Box>
 
@@ -108,9 +119,9 @@ export const App: React.FC = () => {
 
       {/* Footer / Status Bar */}
       <Box borderStyle="classic" borderColor="gray" paddingX={1} marginTop={1} justifyContent="space-between">
-        <Text color="gray">Focused: <Text color="cyan">{activePane}</Text></Text>
+        <Text color="gray">Focused: <Text color="cyan">{isInputActive ? 'INPUT' : activePane}</Text></Text>
         <Box>
-          <Text color="gray"> h: help | q: quit </Text>
+          <Text color="gray"> {isInputActive ? 'ENTER: search | ESC: cancel' : 'h: help | q: quit | /: search'} </Text>
         </Box>
       </Box>
     </Box>
