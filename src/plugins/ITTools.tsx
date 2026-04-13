@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Text, Box, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { ToolPluginProps } from './types.js';
@@ -6,6 +6,7 @@ import { spawn, exec } from 'child_process';
 import os from 'os';
 import net from 'net';
 import crypto from 'crypto';
+import qrcode from 'qrcode-terminal';
 
 interface SubTool {
   id: string;
@@ -30,6 +31,7 @@ const TOOLS: SubTool[] = [
   { id: 'jwt-decode', name: 'JWT Decoder', category: 'Dev', labels: ['auth'], description: 'Decode JWT payload' },
   
   // Dev Tools - Generators & Converters
+  { id: 'otp-gen', name: 'OTP & QR Generator', category: 'Dev', labels: ['auth', 'gen', 'qr'], description: 'Generate OTP or QR codes from text' },
   { id: 'timestamp', name: 'Timestamp Conv', category: 'Dev', labels: ['data', 'time'], description: 'Unix Epoch <-> Local Time' },
   { id: 'uuid-gen', name: 'UUID Generator', category: 'Dev', labels: ['data', 'gen'], description: 'Generate random UUID v4' },
   { id: 'url-tool', name: 'URL Tool', category: 'Dev', labels: ['web', 'encoding'], description: 'URL Encode/Decode' },
@@ -75,6 +77,30 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
     return { visibleItems: items.slice(start, end), startIndex: start, total: items.length };
   };
 
+  // Simple TOTP Implementation (Basic)
+  const generateTOTP = (secret: string) => {
+    try {
+      const epoch = Math.round(Date.now() / 1000.0);
+      const time = Buffer.alloc(8);
+      time.writeBigInt64BE(BigInt(Math.floor(epoch / 30)));
+      
+      const hmac = crypto.createHmac('sha1', secret);
+      hmac.update(time);
+      const hash = hmac.digest();
+      
+      const offset = hash[hash.length - 1] & 0xf;
+      const binary = ((hash[offset] & 0x7f) << 24) |
+                     ((hash[offset + 1] & 0xff) << 16) |
+                     ((hash[offset + 2] & 0xff) << 8) |
+                     (hash[offset + 3] & 0xff);
+      
+      const otp = binary % 1000000;
+      return otp.toString().padStart(6, '0');
+    } catch (e) {
+      return null;
+    }
+  };
+
   const runTool = () => {
     if (!activeToolId) return;
     const tool = TOOLS.find(t => t.id === activeToolId);
@@ -85,6 +111,63 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
     onInputFocus?.(false);
     setOutput([`Executing ${tool.name}...`]);
     setOutputScrollOffset(0);
+
+    // OTP & QR Logic
+    if (tool.id === 'otp-gen') {
+      const input = target.trim();
+      
+      // Check for QR trigger (if input starts with 'qr:')
+      if (input.startsWith('qr:')) {
+        const qrContent = input.substring(3).trim();
+        if (!qrContent) {
+          setOutput(["❌ Please input content after 'qr:' (e.g., qr:hello world)"]);
+        } else {
+          // Use qrcode-terminal to get a string representation
+          qrcode.generate(qrContent, { small: true }, (code) => {
+            setOutput([
+              `QR Code for: ${qrContent}`,
+              ``,
+              ...code.split('\n'),
+              ``,
+              `[Scan with your phone]`
+            ]);
+          });
+        }
+      } 
+      // Numeric OTP
+      else if (!input || /^\d+$/.test(input)) {
+        const length = parseInt(input) || 6;
+        if (length > 20) { setOutput(["❌ Length too long (max 20)"]); }
+        else {
+          const digits = '0123456789';
+          let otp = '';
+          for (let i = 0; i < length; i++) otp += digits[crypto.randomInt(0, 10)];
+          setOutput([
+            `Random ${length}-digit OTP:`, 
+            ``, 
+            `👉 ${otp}`, 
+            ``, 
+            `Tip: Input 'qr:text' to generate a QR Code`
+          ]);
+        }
+      } 
+      // TOTP
+      else {
+        const code = generateTOTP(input);
+        if (code) {
+          setOutput([
+            `TOTP Code for secret: ${input}`, 
+            ``, 
+            `👉 ${code}`, 
+            ``, 
+            `Refresh in: ${30 - (Math.round(Date.now() / 1000) % 30)}s`
+          ]);
+        } else {
+          setOutput([`❌ Could not generate TOTP. Ensure secret is valid.`]);
+        }
+      }
+      setIsRunning(false); return;
+    }
 
     // Fullstack Dev Logic
     if (tool.id === 'json-format') {
@@ -118,6 +201,47 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
       setIsRunning(false); return;
     }
 
+    if (tool.id === 'timestamp') {
+      try {
+        if (/^\d+$/.test(target)) {
+          const date = new Date(parseInt(target) * (target.length <= 10 ? 1000 : 1));
+          setOutput([`Timestamp: ${target}`, `Local Time: ${date.toLocaleString()}`, `ISO: ${date.toISOString()}`]);
+        } else {
+          const ts = Math.floor(new Date(target).getTime() / 1000);
+          if (isNaN(ts)) throw new Error("Invalid date string");
+          setOutput([`Date: ${target}`, `Unix Timestamp: ${ts}`]);
+        }
+      } catch (e: any) { setOutput([`❌ Error: ${e.message}`]); }
+      setIsRunning(false); return;
+    }
+
+    if (tool.id === 'uuid-gen') {
+      const uuids = Array.from({length: 5}).map(() => crypto.randomUUID());
+      setOutput([`Generated 5 UUIDs:`, ...uuids.map(u => ` ➜ ${u}`)]);
+      setIsRunning(false); return;
+    }
+
+    if (tool.id === 'url-tool') {
+      setOutput([`Original: ${target}`, ``, `➡ Encoded: ${encodeURIComponent(target)}`, `⬅ Decoded: ${decodeURIComponent(target)}`]);
+      setIsRunning(false); return;
+    }
+
+    if (tool.id === 'cron-info') {
+      const parts = target.split(' ');
+      if (parts.length < 5) { setOutput(["❌ Invalid Cron: Must have 5 parts (e.g., * * * * *)"]); }
+      else {
+        setOutput([`Expression: ${target}`, ``, `Interpretation (Basic):`, `Minutes: ${parts[0]}`, `Hours: ${parts[1]}`, `Day of Month: ${parts[2]}`, `Month: ${parts[3]}`, `Day of Week: ${parts[4]}`]);
+      }
+      setIsRunning(false); return;
+    }
+
+    if (tool.id === 'lorem') {
+      const count = parseInt(target) || 3;
+      const text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(count);
+      setOutput([`Generated ${count} units:`, ``, text]);
+      setIsRunning(false); return;
+    }
+
     if (tool.id === 'env-info') {
       setOutput([`Node: ${process.version}`, `OS: ${os.type()} ${os.release()}`, ``, `Top Env:`, ...Object.entries(process.env).slice(0, 30).map(([k, v]) => `${k}=${v?.substring(0, 50)}...`)]);
       setIsRunning(false); return;
@@ -141,7 +265,6 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
       const lines = data.toString().split('\n').filter((l: string) => l.trim());
       setOutput(prev => {
         const newOutput = [...prev, ...lines];
-        // Auto-scroll to bottom if near bottom
         if (outputScrollOffset + OUTPUT_PAGE_SIZE >= prev.length) {
           setOutputScrollOffset(Math.max(0, newOutput.length - OUTPUT_PAGE_SIZE));
         }
@@ -165,8 +288,6 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
       if (key.escape || input === 'b') { setActiveToolId(null); setOutput([]); setTarget(''); setOutputScrollOffset(0); }
       if (input === 'r') { setInputMode('TARGET'); onInputFocus?.(true); }
       if (input === 'p' && TOOLS.find(t => t.id === activeToolId)?.hasPort) { setInputMode('PORT'); onInputFocus?.(true); }
-      
-      // Output scrolling
       if (input === '[') setOutputScrollOffset(Math.max(0, outputScrollOffset - 5));
       if (input === ']') setOutputScrollOffset(Math.min(Math.max(0, output.length - OUTPUT_PAGE_SIZE), outputScrollOffset + 5));
       return;
@@ -177,7 +298,7 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
     if (key.return && filteredTools[selectedIndex]) {
       const tool = filteredTools[selectedIndex];
       setActiveToolId(tool.id);
-      if (tool.id === 'env-info') setTimeout(runTool, 100);
+      if (tool.id === 'env-info' || tool.id === 'uuid-gen') setTimeout(runTool, 100);
     }
     if (input === '/') { setIsSearching(true); onInputFocus?.(true); }
   });
@@ -226,9 +347,13 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
             <Text color="gray">ESC/b: Back</Text>
           </Box>
           <Box flexDirection="column">
-            {activeToolId !== 'env-info' && (
+            {activeToolId !== 'env-info' && activeToolId !== 'uuid-gen' && (
               <Box marginBottom={1} flexDirection="column">
-                <Text bold>{activeToolId === 'lorem' ? 'Units: ' : (activeToolId === 'port-check' ? 'Target Host: ' : 'Input Data: ')}</Text>
+                <Text bold>
+                  {activeToolId === 'otp-gen' ? "Input (length, secret, or 'qr:text'): " : 
+                   activeToolId === 'lorem' ? 'Units: ' : 
+                   activeToolId === 'port-check' ? 'Target Host: ' : 'Input Data: '}
+                </Text>
                 {inputMode === 'TARGET' ? <TextInput value={target} onChange={setTarget} onSubmit={runTool} /> : <Text color="cyan" wrap="truncate-end">{target || "(Press 'r' to input)"}</Text>}
               </Box>
             )}
@@ -238,7 +363,7 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
             {output.length > OUTPUT_PAGE_SIZE && (
               <Text color="yellow" dimColor>Scroll Output: {outputScrollOffset + 1}-{Math.min(outputScrollOffset + OUTPUT_PAGE_SIZE, output.length)} / {output.length} (Use [ and ] to scroll)</Text>
             )}
-            {!isRunning && activeToolId !== 'env-info' && <Text color="gray" marginTop={1}>r: Input & Run | b: Back</Text>}
+            {!isRunning && activeToolId !== 'env-info' && activeToolId !== 'uuid-gen' && <Text color="gray" marginTop={1}>r: Input & Run | b: Back</Text>}
           </Box>
         </Box>
       )}
