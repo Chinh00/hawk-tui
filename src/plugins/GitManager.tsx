@@ -10,6 +10,9 @@ import { ToolPluginProps } from './types.js';
 type ViewState = 'REPOS' | 'REPO_DETAIL' | 'CONFIG' | 'COMMIT_FILES';
 type DetailSubView = 'OVERVIEW' | 'BRANCHES' | 'PRS' | 'COMMITS';
 
+const PAGE_SIZE = 5; 
+const DIFF_PAGE_SIZE = 20;
+
 interface FileNode {
   name: string;
   path: string;
@@ -36,6 +39,7 @@ export const GitManager: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocus
   const [activeBranch, setActiveBranch] = useState<string | undefined>(undefined);
   
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [diffScrollOffset, setDiffScrollOffset] = useState(0);
   
   const [configStep, setConfigStep] = useState(0);
   const [configData, setConfigData] = useState({
@@ -114,38 +118,15 @@ export const GitManager: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocus
     }
   };
 
-  const buildFileTree = (files: any[]): FileNode => {
-    const root: FileNode = { name: 'root', path: '', isDir: true, children: {} };
-    files.forEach(file => {
-      const parts = file.path.split('/');
-      let current = root;
-      parts.forEach((part, index) => {
-        const isLast = index === parts.length - 1;
-        if (!current.children[part]) {
-          current.children[part] = {
-            name: part,
-            path: parts.slice(0, index + 1).join('/'),
-            isDir: !isLast,
-            children: {},
-            status: isLast ? file.status : undefined,
-            diff: isLast ? file.diff : undefined
-          };
-        }
-        current = current.children[part];
-      });
-    });
-    return root;
-  };
-
   const loadCommitFiles = async (commit: any) => {
     setLoading(true);
     setSelectedCommit(commit);
     try {
       const files = await gitService.getCommitFiles(selectedRepo.fullName || selectedRepo.id, commit.hash);
       setFlatFiles(files);
-      setFileTree(buildFileTree(files));
       setView('COMMIT_FILES');
       setSelectedIndex(0);
+      setDiffScrollOffset(0);
       setLoading(false);
     } catch (err: any) {
       setError(`Failed to load commit files: ${err.message}`);
@@ -168,15 +149,42 @@ export const GitManager: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocus
 
   const renderDiff = (diff?: string) => {
     if (!diff) return <Text color="gray">No changes to show.</Text>;
+    const lines = diff.split('\n');
+    const visibleLines = lines.slice(diffScrollOffset, diffScrollOffset + DIFF_PAGE_SIZE);
+
     return (
       <Box flexDirection="column">
-        {diff.split('\n').map((line, i) => {
+        {visibleLines.map((line, i) => {
           let color = 'white';
           if (line.startsWith('+')) color = 'green';
           else if (line.startsWith('-')) color = 'red';
           else if (line.startsWith('@@')) color = 'cyan';
-          return <Text key={i} color={color}>{line}</Text>;
+          return <Text key={i} color={color} wrap="truncate-end">{line}</Text>;
         })}
+        {lines.length > DIFF_PAGE_SIZE && (
+          <Box marginTop={1} borderStyle="classic" borderColor="gray" paddingX={1}>
+            <Text color="yellow">Scroll Diff: {diffScrollOffset + 1}-{Math.min(diffScrollOffset + DIFF_PAGE_SIZE, lines.length)} / {lines.length} (Use [ and ] to scroll)</Text>
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
+  const getScrollWindow = (items: any[], pageSize = PAGE_SIZE) => {
+    let start = Math.max(0, selectedIndex - Math.floor(pageSize / 2));
+    let end = start + pageSize;
+    if (end > items.length) {
+      end = items.length;
+      start = Math.max(0, end - pageSize);
+    }
+    return { visibleItems: items.slice(start, end), startIndex: start, total: items.length };
+  };
+
+  const renderScrollInfo = (current: number, total: number, pageSize = PAGE_SIZE) => {
+    if (total <= pageSize) return null;
+    return (
+      <Box marginTop={1} borderStyle="classic" borderColor="gray" paddingX={1}>
+        <Text color="gray">Scrolling: {current + 1} / {total}</Text>
       </Box>
     );
   };
@@ -208,8 +216,8 @@ export const GitManager: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocus
       if (key.downArrow) setSelectedIndex(Math.min(items.length - 1, selectedIndex + 1));
       
       if (key.return) {
-        if (subView === 'BRANCHES') loadCommits(branches[selectedIndex].name);
-        else if (subView === 'COMMITS') loadCommitFiles(commits[selectedIndex]);
+        if (subView === 'BRANCHES' && branches.length > 0) loadCommits(branches[selectedIndex].name);
+        else if (subView === 'COMMITS' && commits.length > 0) loadCommitFiles(commits[selectedIndex]);
       }
     } else if (view === 'COMMIT_FILES') {
       if (key.escape || input === 'b') {
@@ -217,8 +225,27 @@ export const GitManager: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocus
         setSubView('COMMITS');
         setSelectedIndex(commits.findIndex(c => c.hash === selectedCommit.hash) || 0);
       }
-      if (key.upArrow) setSelectedIndex(Math.max(0, selectedIndex - 1));
-      if (key.downArrow) setSelectedIndex(Math.min(flatFiles.length - 1, selectedIndex + 1));
+      
+      if (key.upArrow) {
+        setSelectedIndex(Math.max(0, selectedIndex - 1));
+        setDiffScrollOffset(0);
+      }
+      if (key.downArrow) {
+        setSelectedIndex(Math.min(flatFiles.length - 1, selectedIndex + 1));
+        setDiffScrollOffset(0);
+      }
+
+      // Diff scrolling with [ and ]
+      if (input === '[') {
+        setDiffScrollOffset(Math.max(0, diffScrollOffset - 5));
+      }
+      if (input === ']') {
+        const currentDiff = flatFiles[selectedIndex]?.diff || '';
+        const totalLines = currentDiff.split('\n').length;
+        if (totalLines > DIFF_PAGE_SIZE) {
+          setDiffScrollOffset(Math.min(totalLines - DIFF_PAGE_SIZE, diffScrollOffset + 5));
+        }
+      }
     }
   });
 
@@ -303,14 +330,18 @@ export const GitManager: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocus
             {view !== 'REPOS' && <Text color="gray">ESC: Back</Text>}
           </Box>
           
-          {repos.map((r, i) => (
-            <Box key={r.id} justifyContent="space-between">
-              <Text color={r.id === selectedRepo?.id ? 'green' : (i === selectedIndex && view === 'REPOS' ? 'cyan' : 'white')} wrap="truncate-end">
-                {i === selectedIndex && view === 'REPOS' ? '> ' : '  '}{r.fullName}
-              </Text>
-              {view === 'REPOS' && <Text color="gray">{formatRelativeTime(r.updatedAt)}</Text>}
-            </Box>
-          ))}
+          {getScrollWindow(repos, 20).visibleItems.map((r, i) => {
+            const actualIndex = i + getScrollWindow(repos, 20).startIndex;
+            return (
+              <Box key={r.id} justifyContent="space-between">
+                <Text color={r.id === selectedRepo?.id ? 'green' : (actualIndex === selectedIndex && view === 'REPOS' ? 'cyan' : 'white')} wrap="truncate-end">
+                  {actualIndex === selectedIndex && view === 'REPOS' ? '> ' : '  '}{r.fullName}
+                </Text>
+                {view === 'REPOS' && <Text color="gray">{formatRelativeTime(r.updatedAt)}</Text>}
+              </Box>
+            );
+          })}
+          {view === 'REPOS' && renderScrollInfo(selectedIndex, repos.length, 20)}
         </Box>
       )}
 
@@ -344,30 +375,38 @@ export const GitManager: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocus
 
             {subView === 'BRANCHES' && (
               <Box flexDirection="column">
-                {branches.map((b, i) => (
-                  <Box key={i} justifyContent="space-between">
-                    <Text color={i === selectedIndex ? 'cyan' : 'white'}>
-                      {i === selectedIndex ? '● ' : '  '}{b.name}
-                    </Text>
-                    {b.date && <Text color="gray">{formatRelativeTime(b.date)}</Text>}
-                  </Box>
-                ))}
+                {getScrollWindow(branches, 20).visibleItems.map((b, i) => {
+                  const actualIndex = i + getScrollWindow(branches, 20).startIndex;
+                  return (
+                    <Box key={actualIndex} justifyContent="space-between">
+                      <Text color={actualIndex === selectedIndex ? 'cyan' : 'white'}>
+                        {actualIndex === selectedIndex ? '● ' : '  '}{b.name}
+                      </Text>
+                      {b.date && <Text color="gray">{formatRelativeTime(b.date)}</Text>}
+                    </Box>
+                  );
+                })}
+                {renderScrollInfo(selectedIndex, branches.length, 20)}
               </Box>
             )}
 
             {subView === 'COMMITS' && (
               <Box flexDirection="column">
-                <Text color="yellow" bold marginBottom={1}>History: {activeBranch || 'Default Branch'}</Text>
-                {commits.map((c, i) => (
-                  <Box key={i} flexDirection="column" marginBottom={1}>
-                    <Box justifyContent="space-between">
-                      <Text color={i === selectedIndex ? 'yellow' : 'cyan'} bold>{i === selectedIndex ? '> ' : ''}{c.shortHash}</Text>
-                      <Text color="gray">{formatRelativeTime(c.date)}</Text>
+                <Text color="yellow" bold marginBottom={1}>History: {activeBranch || 'Default Branch'} ({commits.length})</Text>
+                {getScrollWindow(commits, PAGE_SIZE).visibleItems.map((c, i) => {
+                  const actualIndex = i + getScrollWindow(commits, PAGE_SIZE).startIndex;
+                  return (
+                    <Box key={actualIndex} flexDirection="column" marginBottom={1}>
+                      <Box justifyContent="space-between">
+                        <Text color={actualIndex === selectedIndex ? 'yellow' : 'cyan'} bold>{actualIndex === selectedIndex ? '> ' : ''}{c.shortHash}</Text>
+                        <Text color="gray">{formatRelativeTime(c.date)}</Text>
+                      </Box>
+                      <Text wrap="truncate-end" bold={actualIndex === selectedIndex}>{c.message}</Text>
+                      <Text color="magenta" dimColor italic>by {c.author}</Text>
                     </Box>
-                    <Text wrap="truncate-end" bold={i === selectedIndex}>{c.message}</Text>
-                    <Text color="magenta" dimColor italic>by {c.author}</Text>
-                  </Box>
-                ))}
+                  );
+                })}
+                {renderScrollInfo(selectedIndex, commits.length, PAGE_SIZE)}
               </Box>
             )}
 
@@ -378,13 +417,17 @@ export const GitManager: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocus
                   <Box flexGrow={1}><Text bold>Title</Text></Box>
                   <Box width={15}><Text bold>Created</Text></Box>
                 </Box>
-                {pullRequests.map((pr, i) => (
-                  <Box key={pr.id} flexDirection="row">
-                    <Box width={8}><Text color="gray">{pr.number}</Text></Box>
-                    <Box flexGrow={1}><Text color={i === selectedIndex ? 'cyan' : 'white'} wrap="truncate-end">{pr.title}</Text></Box>
-                    <Box width={15}><Text color="gray">{formatRelativeTime(pr.createdAt)}</Text></Box>
-                  </Box>
-                ))}
+                {getScrollWindow(pullRequests, 20).visibleItems.map((pr, i) => {
+                  const actualIndex = i + getScrollWindow(pullRequests, 20).startIndex;
+                  return (
+                    <Box key={pr.id} flexDirection="row">
+                      <Box width={8}><Text color="gray">{pr.number}</Text></Box>
+                      <Box flexGrow={1}><Text color={actualIndex === selectedIndex ? 'cyan' : 'white'} wrap="truncate-end">{pr.title}</Text></Box>
+                      <Box width={15}><Text color="gray">{formatRelativeTime(pr.createdAt)}</Text></Box>
+                    </Box>
+                  );
+                })}
+                {renderScrollInfo(selectedIndex, pullRequests.length, 20)}
               </Box>
             )}
           </Box>
@@ -397,19 +440,23 @@ export const GitManager: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocus
           <Box flexDirection="column" width={40} borderRightStyle="single" borderColor="gray" paddingRight={1}>
             <Text bold color="yellow">Changed Files ({flatFiles.length})</Text>
             <Box height={1} />
-            {flatFiles.map((f, i) => (
-              <Box key={i}>
-                <Text color={i === selectedIndex ? 'cyan' : 'white'} wrap="truncate-end">
-                  {i === selectedIndex ? '> ' : '  '}{f.path}
-                </Text>
-              </Box>
-            ))}
+            {getScrollWindow(flatFiles, 20).visibleItems.map((f, i) => {
+              const actualIndex = i + getScrollWindow(flatFiles, 20).startIndex;
+              return (
+                <Box key={actualIndex}>
+                  <Text color={actualIndex === selectedIndex ? 'cyan' : 'white'} wrap="truncate-end">
+                    {actualIndex === selectedIndex ? '> ' : '  '}{f.path}
+                  </Text>
+                </Box>
+              );
+            })}
+            {renderScrollInfo(selectedIndex, flatFiles.length, 20)}
           </Box>
 
           {/* Cột hiển thị Diff */}
           <Box flexDirection="column" flexGrow={1} paddingLeft={2}>
             <Text bold underline color="cyan">Diff: {flatFiles[selectedIndex]?.path}</Text>
-            <Box marginTop={1}>
+            <Box marginTop={1} flexGrow={1}>
               {renderDiff(flatFiles[selectedIndex]?.diff)}
             </Box>
           </Box>
