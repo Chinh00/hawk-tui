@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Text, Box, Newline } from 'ink';
 import si from 'systeminformation';
 
-export const NetworkMonitor: React.FC = () => {
+import { ToolPluginProps } from './types.js';
+
+export const NetworkMonitor: React.FC<ToolPluginProps> = () => {
   const [stats, setStats] = useState<si.Systeminformation.NetworkStatsData[]>([]);
   const [connections, setConnections] = useState<si.Systeminformation.NetworkConnectionsData[]>([]);
   const [time, setTime] = useState('');

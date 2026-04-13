@@ -1,7 +1,8 @@
 import { ToolPlugin } from './types.js';
 import { Dashboard } from './Dashboard.jsx';
-import { GitStatus } from './GitStatus.jsx';
 import { NetworkExplorer } from './NetworkExplorer.jsx';
+import { JiraExplorer } from './JiraExplorer.jsx';
+import { GitManager } from './GitManager.jsx';
 
 export const plugins: ToolPlugin[] = [
   {
@@ -10,6 +11,11 @@ export const plugins: ToolPlugin[] = [
     category: 'System',
     description: 'System Control Center (CPU, Mem, Net)',
     component: Dashboard,
+    subMenus: [
+      { id: 'overview', name: 'Overview' },
+      { id: 'processes', name: 'Processes' },
+      { id: 'network', name: 'Network' }
+    ]
   },
   {
     id: 'network-explorer',
@@ -17,12 +23,33 @@ export const plugins: ToolPlugin[] = [
     category: 'Network',
     description: 'Searchable connection list',
     component: NetworkExplorer,
+    subMenus: [
+      { id: 'all', name: 'All Conns' },
+      { id: 'established', name: 'Established' },
+      { id: 'listening', name: 'Listening' }
+    ]
   },
   {
-    id: 'git-status',
-    name: 'Git Status',
+    id: 'jira-explorer',
+    name: 'Jira Explorer',
+    category: 'Management',
+    description: 'Jira Cloud Board & Issues',
+    component: JiraExplorer,
+    subMenus: [
+      { id: 'board', name: 'Board' },
+      { id: 'issues', name: 'All Issues' },
+      { id: 'config', name: 'Configuration' }
+    ]
+  },
+  {
+    id: 'git-manager',
+    name: 'Git Manager',
     category: 'Git',
-    description: 'Current git repository status',
-    component: GitStatus,
+    description: 'GitHub/GitLab Repositories',
+    component: GitManager,
+    subMenus: [
+      { id: 'repos', name: 'My Repos' },
+      { id: 'config', name: 'Configuration' }
+    ]
   }
 ];

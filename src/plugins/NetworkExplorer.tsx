@@ -3,7 +3,9 @@ import { Text, Box, Newline } from 'ink';
 import TextInput from 'ink-text-input';
 import si from 'systeminformation';
 
-export const NetworkExplorer: React.FC = () => {
+import { ToolPluginProps } from './types.js';
+
+export const NetworkExplorer: React.FC<ToolPluginProps> = () => {
   const [query, setQuery] = useState('');
   const [connections, setConnections] = useState<si.Systeminformation.NetworkConnectionsData[]>([]);
   const [processMap, setProcessMap] = useState<Record<number, string>>({});
