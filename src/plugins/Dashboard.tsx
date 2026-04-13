@@ -1,9 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Text, Box, Newline } from 'ink';
+import React, { useState, useEffect, useRef } from 'react';
+import { Text, Box } from 'ink';
 import TextInput from 'ink-text-input';
 import si from 'systeminformation';
+import { fork, ChildProcess } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import { ToolPluginProps } from './types.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const Dashboard: React.FC<ToolPluginProps> = () => {
   const [data, setData] = useState<{
@@ -17,50 +22,64 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
     wslInfo: { isWsl: boolean; version?: number };
     time: string;
   } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const [procQuery, setProcQuery] = useState('');
+  const workerRef = useRef<ChildProcess | null>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
-      const [cpu, mem, netStats, netConn, interfaces, ps, osInfo] = await Promise.all([
-        si.currentLoad(),
-        si.mem(),
-        si.networkStats(),
-        si.networkConnections(),
-        si.networkInterfaces(),
-        si.processes(),
-        si.osInfo()
-      ]);
-
-      // Detect WSL
-      let isWsl = false;
-      let wslVersion: number | undefined = undefined;
-      
-      const kernel = osInfo.kernel.toLowerCase();
-      if (kernel.includes('microsoft')) {
-        isWsl = true;
-        wslVersion = kernel.includes('wsl2') ? 2 : 1;
-      }
-      
-      setData({
-        cpu,
-        mem,
-        netStats,
-        netConn,
-        interfaces: interfaces.filter(i => i.ip4 || i.ip6),
-        processes: ps.list,
-        osInfo,
-        wslInfo: { isWsl, version: wslVersion },
-        time: new Date().toLocaleTimeString()
+    const workerPath = path.resolve(__dirname, '../services/sysWorker.ts');
+    
+    try {
+      // Dùng fork để chạy file .ts với tsx loader
+      const child = fork(workerPath, [], {
+        execArgv: process.execArgv,
+        stdio: ['inherit', 'inherit', 'inherit', 'ipc']
       });
-    };
 
-    fetchData();
-    const timer = setInterval(fetchData, 1000);
-    return () => clearInterval(timer);
+      child.on('error', (err) => {
+        setError(`Process error: ${err.message}`);
+      });
+
+      child.on('exit', (code) => {
+        if (code !== 0 && code !== null) setError(`Process exited with code ${code}`);
+      });
+
+      child.on('message', (msg: any) => {
+        if (msg.error) {
+          setError(`System error: ${msg.error}`);
+          return;
+        }
+        setError(null);
+        setData(msg);
+      });
+
+      workerRef.current = child;
+    } catch (e) {
+      setError(`Failed to fork process: ${(e as Error).message}`);
+    }
+
+    return () => {
+      workerRef.current?.kill();
+    };
   }, []);
 
-  if (!data) return <Text color="yellow">Initializing Dashboard...</Text>;
+  if (error) return (
+    <Box padding={1} flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} borderStyle="double" borderColor="red">
+      <Text color="red" bold>❌ Dashboard Worker Error</Text>
+      <Box marginTop={1}>
+        <Text color="white">{error}</Text>
+      </Box>
+      <Text color="gray" marginTop={1}>Check if tsx is correctly resolving paths</Text>
+    </Box>
+  );
+
+  if (!data) return (
+    <Box padding={1} flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1}>
+      <Text color="yellow">📡 Connecting to System Worker Thread...</Text>
+      <Text color="gray" dimColor>Offloading I/O intensive tasks to keep UI responsive</Text>
+    </Box>
+  );
 
   const filteredProcesses = data.processes
     .filter(p => p.name.toLowerCase().includes(procQuery.toLowerCase()) || p.pid.toString().includes(procQuery))
@@ -76,7 +95,7 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
       {/* Header Row */}
       <Box justifyContent="space-between" borderStyle="single" borderColor="gray" paddingX={1}>
         <Box flexDirection="column">
-          <Text color="green" bold>鷹 HAWK CONTROL CENTER</Text>
+          <Text color="green" bold>鷹 HAWK CONTROL CENTER [MULTI-THREADED]</Text>
           <Box>
             <Text color="gray">OS: </Text>
             <Text color="white">{data.osInfo.distro} {data.osInfo.release} ({data.osInfo.arch})</Text>
