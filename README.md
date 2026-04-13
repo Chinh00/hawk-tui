@@ -26,7 +26,23 @@ A powerful Terminal User Interface (TUI) Dashboard for real-time system and netw
 - Node.js (v16 or higher)
 - npm
 
-### Installation
+### Prerequisites & Host Dependencies
+
+To use all features of Hawk TUI, ensure the following tools are installed on your host system and available in your PATH:
+
+### 1. Music Player
+*   **mpv**: Required for background music playback.
+    *   **Windows**: `choco install mpv`
+    *   **macOS**: `brew install mpv`
+    *   **Linux**: `sudo apt install mpv`
+
+### 2. IT Tools (Traceroute, Ping, etc.)
+*   **traceroute / tracert**: Usually pre-installed.
+    *   **Linux**: `sudo apt install traceroute` (if missing)
+*   **yt-dlp**: Required by mpv to stream YouTube audio.
+    *   **All Platforms**: `pip install yt-dlp` or download from GitHub.
+
+## Installation
 
 ```bash
 npm install

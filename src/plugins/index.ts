@@ -4,6 +4,7 @@ import { NetworkExplorer } from './NetworkExplorer.jsx';
 import { JiraExplorer } from './JiraExplorer.jsx';
 import { GitManager } from './GitManager.jsx';
 import { MusicPlayer } from './MusicPlayer.jsx';
+import { ITTools } from './ITTools.jsx';
 
 export const plugins: ToolPlugin[] = [
   {
@@ -58,5 +59,17 @@ export const plugins: ToolPlugin[] = [
     category: 'Custom',
     description: 'YouTube Music Explorer',
     component: MusicPlayer
+  },
+  {
+    id: 'it-tools',
+    name: 'IT Tools',
+    category: 'Network',
+    description: 'Collection of useful IT utilities',
+    component: ITTools,
+    subMenus: [
+      { id: 'all', name: 'All Tools' },
+      { id: 'network', name: 'Network' },
+      { id: 'utils', name: 'Utilities' }
+    ]
   }
 ];
