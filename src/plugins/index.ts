@@ -6,6 +6,7 @@ import { GitManager } from './GitManager.jsx';
 import { MusicPlayer } from './MusicPlayer.jsx';
 import { ITTools } from './ITTools.jsx';
 import { VersionInfo } from './VersionInfo.jsx';
+import { WSLManager } from './WSLManager.jsx';
 
 export const plugins: ToolPlugin[] = [
   {
@@ -19,6 +20,13 @@ export const plugins: ToolPlugin[] = [
       { id: 'processes', name: 'Processes' },
       { id: 'network', name: 'Network' }
     ]
+  },
+  {
+    id: 'wsl-manager',
+    name: 'WSL Manager',
+    category: 'System',
+    description: 'Manage WSL instances',
+    component: WSLManager
   },
   {
     id: 'network-explorer',

@@ -108,7 +108,7 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
           <Box>
             <Text color="gray">IPs: </Text>
             {data.interfaces.map((itf, idx) => (
-              <Text key={itf.iface} color="cyan">
+              <Text key={`ip-${itf.iface || idx}`} color="cyan">
                 {itf.ip4}{idx < data.interfaces.length - 1 ? ', ' : ''}
               </Text>
             ))}
@@ -125,7 +125,7 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
           <Box marginTop={1}>
             <Text color="gray">Cores: </Text>
             {data.cpu.cpus.map((c, i) => (
-              <Text key={i} color={c.load > 80 ? 'red' : 'gray'}>█</Text>
+              <Text key={`core-${i}`} color={c.load > 80 ? 'red' : 'gray'}>█</Text>
             ))}
           </Box>
         </Box>
@@ -160,7 +160,7 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
         </Box>
 
         {filteredProcesses.map((p) => (
-          <Box key={p.pid} flexDirection="row">
+          <Box key={`proc-${p.pid}`} flexDirection="row">
             <Box width={10}><Text color="gray">{p.pid}</Text></Box>
             <Box width={20}><Text wrap="truncate-end" color="white">{p.name}</Text></Box>
             <Box width={10}>
@@ -180,7 +180,7 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
           <Text bold color="magenta">Network Traffic Overview</Text>
           <Box flexDirection="row">
             {data.netStats.filter(n => n.operstate === 'up').map((n, i) => (
-              <Box key={i} marginRight={4}>
+              <Box key={`net-${n.iface || i}`} marginRight={4}>
                 <Text color="gray">{n.iface}: </Text>
                 <Text color="green">↓{(n.rx_sec/1024).toFixed(0)}KB/s</Text>
                 <Text color="yellow"> ↑{(n.tx_sec/1024).toFixed(0)}KB/s</Text>

@@ -5,6 +5,9 @@ import reactPlugin from "eslint-plugin-react";
 import reactHooksPlugin from "eslint-plugin-react-hooks";
 
 export default [
+  {
+    ignores: ["dist/**", "node_modules/**"],
+  },
   js.configs.recommended,
   {
     files: ["src/**/*.{ts,tsx}"],
@@ -12,6 +15,14 @@ export default [
       parser: tsParser,
       ecmaVersion: "latest",
       sourceType: "module",
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+        setInterval: "readonly",
+        clearTimeout: "readonly",
+        clearInterval: "readonly",
+      }
     },
     plugins: {
       "@typescript-eslint": tsPlugin,
@@ -23,6 +34,7 @@ export default [
       ...reactPlugin.configs.recommended.rules,
       ...reactHooksPlugin.configs.recommended.rules,
       "react/react-in-jsx-scope": "off",
+      "@typescript-eslint/no-explicit-any": "warn",
     },
     settings: {
       react: {

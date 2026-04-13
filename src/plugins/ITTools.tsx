@@ -63,9 +63,41 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
   
   const [cronSchedule, setCronSchedule] = useState('@hourly');
   const [cronCommand, setCronCommand] = useState('');
+  const [viewMode, setViewMode] = useState<'PRETTY' | 'RAW'>('PRETTY');
+  const [rawBody, setRawResponse] = useState<any>(null);
+  const [responseType, setResponseType] = useState<string>('');
 
   const isWin = os.platform() === 'win32';
   const cronPrefix = isWin ? 'wsl ' : '';
+
+  const formatContent = (data: any, type: string, mode: 'PRETTY' | 'RAW'): string[] => {
+    if (!data) return ["(Empty response)"];
+    if (mode === 'RAW') return String(typeof data === 'object' ? JSON.stringify(data) : data).split('\n');
+
+    const ct = type.toLowerCase();
+    if (ct.includes('json') || typeof data === 'object') {
+      try {
+        const obj = typeof data === 'string' ? JSON.parse(data) : data;
+        return JSON.stringify(obj, null, 2).split('\n');
+      } catch (e) { return String(data).split('\n'); }
+    }
+
+    if (ct.includes('xml') || ct.includes('html')) {
+      let formatted = '';
+      let indent = '';
+      const tab = '  ';
+      String(data).split(/>\s*</).forEach(node => {
+        if (node.match(/^\/\w/)) indent = indent.substring(tab.length);
+        formatted += indent + '<' + node + '>\n';
+        if (node.match(/^<?\w[^>]*[^\/]$/) && !node.startsWith('input') && !node.startsWith('meta') && !node.startsWith('link') && !node.startsWith('br') && !node.startsWith('hr')) {
+          indent += tab;
+        }
+      });
+      return formatted.trim().split('\n');
+    }
+
+    return String(data).split('\n');
+  };
 
   const filteredTools = TOOLS.filter(t => {
     const matchesSearch = t.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -186,16 +218,18 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
       
       axios.get(url, { timeout: 10000 })
         .then(res => {
-          const resOutput = [
+          setRawResponse(res.data);
+          const ct = res.headers['content-type'] || 'text/plain';
+          setResponseType(ct);
+          
+          const meta = [
             `✅ Success: ${res.status} ${res.statusText}`,
             `Time: ${new Date().toLocaleTimeString()}`,
-            `Content-Type: ${res.headers['content-type']}`,
-            `--- Response Body ---`,
-            ...(typeof res.data === 'object' 
-              ? JSON.stringify(res.data, null, 2).split('\n') 
-              : String(res.data).split('\n'))
+            `Content-Type: ${ct}`,
+            `--- Body ---`
           ];
-          setOutput(resOutput);
+          
+          setOutput([...meta, ...formatContent(res.data, ct, viewMode)]);
           setIsRunning(false);
         })
         .catch(err => {
@@ -240,6 +274,14 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
       } else {
         if (input === 'r') { setInputMode('TARGET'); onInputFocus?.(true); }
         if (input === 'p' && TOOLS.find(t => t.id === activeToolId)?.hasPort) { setInputMode('PORT'); onInputFocus?.(true); }
+        if (activeToolId === 'call-url' && input === 'v' && rawBody) {
+          const newMode = viewMode === 'PRETTY' ? 'RAW' : 'PRETTY';
+          setViewMode(newMode);
+          setOutput(prev => {
+            const meta = prev.slice(0, 4);
+            return [...meta, ...formatContent(rawBody, responseType, newMode)];
+          });
+        }
       }
       if (input === '[') setOutputScrollOffset(Math.max(0, outputScrollOffset - 5));
       if (input === ']') setOutputScrollOffset(Math.min(Math.max(0, output.length - OUTPUT_PAGE_SIZE), outputScrollOffset + 5));
@@ -274,9 +316,9 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
               {getScrollWindow(filteredTools, selectedIndex, PAGE_SIZE).visibleItems.map((t, i) => {
                 const actualIndex = i + getScrollWindow(filteredTools, selectedIndex, PAGE_SIZE).startIndex;
                 return (
-                  <Box key={t.id} flexDirection="column" marginBottom={1}>
+                  <Box key={`tool-${t.id}`} flexDirection="column" marginBottom={1}>
                     <Text color={actualIndex === selectedIndex ? "cyan" : "white"}>{actualIndex === selectedIndex ? "> " : "  "}{t.name}</Text>
-                    <Box marginLeft={4} flexDirection="row">{t.labels.map(l => <Text key={l} color="magenta" dimColor fontSize="small"> #{l}</Text>)}</Box>
+                    <Box marginLeft={4} flexDirection="row">{t.labels.map((l, li) => <Text key={`label-${t.id}-${l}-${li}`} color="magenta" dimColor fontSize="small"> #{l}</Text>)}</Box>
                   </Box>
                 );
               })}
@@ -309,7 +351,7 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
                 <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} minHeight={15}>
                   <Text bold underline color="cyan" marginBottom={1}>Active Cron Jobs (Indices):</Text>
                   {output.slice(outputScrollOffset, outputScrollOffset + OUTPUT_PAGE_SIZE).map((line, i) => (
-                    <Text key={i} color="white" wrap="truncate-end">{`[${i + outputScrollOffset}] ${line}`}</Text>
+                    <Text key={`cron-line-${i + outputScrollOffset}`} color="white" wrap="truncate-end">{`[${i + outputScrollOffset}] ${line}`}</Text>
                   ))}
                 </Box>
                 <Text color="gray" marginTop={1}>a: Add | d: Delete | l: View Log | r: Refresh | b: Back</Text>
@@ -321,9 +363,15 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
                   {inputMode === 'TARGET' ? <TextInput value={target} onChange={setTarget} onSubmit={runTool} /> : <Text color="cyan">{target || "(Press 'r' to input)"}</Text>}
                 </Box>
                 <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} minHeight={15}>
-                  {output.slice(outputScrollOffset, outputScrollOffset + OUTPUT_PAGE_SIZE).map((line, i) => <Text key={i} color="white" wrap="truncate-end">{line}</Text>)}
+                  {output.slice(outputScrollOffset, outputScrollOffset + OUTPUT_PAGE_SIZE).map((line, i) => <Text key={`output-line-${i + outputScrollOffset}`} color="white" wrap="truncate-end">{line}</Text>)}
                 </Box>
-                {!isRunning && activeToolId !== 'env-info' && activeToolId !== 'uuid-gen' && <Text color="gray" marginTop={1}>r: Input & Run | b: Back</Text>}
+                {!isRunning && activeToolId !== 'env-info' && activeToolId !== 'uuid-gen' && (
+                  <Box flexDirection="row">
+                    <Text color="gray" marginTop={1}>r: Input & Run | </Text>
+                    {activeToolId === 'call-url' && <Text color="yellow" marginTop={1}>v: Toggle View (Current: {viewMode}) | </Text>}
+                    <Text color="gray" marginTop={1}>b: Back</Text>
+                  </Box>
+                )}
               </Box>
             )}
             {output.length > OUTPUT_PAGE_SIZE && <Text color="yellow" dimColor>Scroll Output: {outputScrollOffset + 1}-{Math.min(outputScrollOffset + OUTPUT_PAGE_SIZE, output.length)} / {output.length} ([, ])</Text>}
