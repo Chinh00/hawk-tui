@@ -5,6 +5,7 @@ import { JiraExplorer } from './JiraExplorer.jsx';
 import { GitManager } from './GitManager.jsx';
 import { MusicPlayer } from './MusicPlayer.jsx';
 import { ITTools } from './ITTools.jsx';
+import { VersionInfo } from './VersionInfo.jsx';
 
 export const plugins: ToolPlugin[] = [
   {
@@ -71,5 +72,12 @@ export const plugins: ToolPlugin[] = [
       { id: 'network', name: 'Network' },
       { id: 'utils', name: 'Utilities' }
     ]
+  },
+  {
+    id: 'version-info',
+    name: 'Version Info',
+    category: 'Custom',
+    description: 'Application & Build Information',
+    component: VersionInfo
   }
 ];

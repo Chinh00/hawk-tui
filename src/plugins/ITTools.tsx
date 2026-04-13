@@ -7,6 +7,7 @@ import os from 'os';
 import net from 'net';
 import crypto from 'crypto';
 import qrcode from 'qrcode-terminal';
+import axios from 'axios';
 
 interface SubTool {
   id: string;
@@ -31,6 +32,7 @@ const TOOLS: SubTool[] = [
   { id: 'timestamp', name: 'Timestamp Conv', category: 'Dev', labels: ['data', 'time'], description: 'Unix Epoch <-> Local Time' },
   { id: 'uuid-gen', name: 'UUID Generator', category: 'Dev', labels: ['data', 'gen'], description: 'Generate random UUID v4' },
   { id: 'url-tool', name: 'URL Tool', category: 'Dev', labels: ['web', 'encoding'], description: 'URL Encode/Decode' },
+  { id: 'call-url', name: 'Call URL', category: 'Dev', labels: ['web', 'network', 'api'], description: 'Make HTTP GET request to URL' },
   { id: 'env-info', name: 'Env Info', category: 'Dev', labels: ['system'], description: 'Node, NPM and Env info' }
 ];
 
@@ -178,6 +180,34 @@ export const ITTools: React.FC<ToolPluginProps> = ({ activeSubMenuId, isFocused,
     if (tool.id === 'timestamp') { try { if (/^\d+$/.test(target)) { setOutput([`Time: ${new Date(parseInt(target)*1000).toLocaleString()}`]); } else { setOutput([`TS: ${Math.floor(new Date(target).getTime()/1000)}`]); } } catch (e) { setOutput(["❌ Error"]); } setIsRunning(false); return; }
     if (tool.id === 'env-info') { setOutput([`Node: ${process.version}`, `OS: ${os.type()}`, ``, `Env:`, ...Object.entries(process.env).slice(0, 10).map(([k,v]) => `${k}=${v?.substring(0,30)}...`)]); setIsRunning(false); return; }
     
+    if (tool.id === 'call-url') {
+      const url = target.trim();
+      if (!url) { setOutput(["❌ Error: URL is required"]); setIsRunning(false); return; }
+      
+      axios.get(url, { timeout: 10000 })
+        .then(res => {
+          const resOutput = [
+            `✅ Success: ${res.status} ${res.statusText}`,
+            `Time: ${new Date().toLocaleTimeString()}`,
+            `Content-Type: ${res.headers['content-type']}`,
+            `--- Response Body ---`,
+            ...(typeof res.data === 'object' 
+              ? JSON.stringify(res.data, null, 2).split('\n') 
+              : String(res.data).split('\n'))
+          ];
+          setOutput(resOutput);
+          setIsRunning(false);
+        })
+        .catch(err => {
+          const errorMsg = err.response 
+            ? `❌ Error: ${err.response.status} ${err.response.statusText}`
+            : `❌ Error: ${err.message}`;
+          setOutput([errorMsg, ...(err.response ? JSON.stringify(err.response.data, null, 2).split('\n') : [])]);
+          setIsRunning(false);
+        });
+      return;
+    }
+
     if (tool.id === 'port-check') {
       const socket = new net.Socket(); socket.setTimeout(2000);
       socket.on('connect', () => { setOutput([`✅ ${target}:${port} OPEN`]); socket.destroy(); setIsRunning(false); });
