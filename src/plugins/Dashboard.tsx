@@ -13,6 +13,8 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
     netConn: si.Systeminformation.NetworkConnectionsData[];
     interfaces: si.Systeminformation.NetworkInterfacesData[];
     processes: si.Systeminformation.ProcessData[];
+    osInfo: si.Systeminformation.OsData;
+    wslInfo: { isWsl: boolean; version?: number };
     time: string;
   } | null>(null);
 
@@ -20,14 +22,25 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      const [cpu, mem, netStats, netConn, interfaces, ps] = await Promise.all([
+      const [cpu, mem, netStats, netConn, interfaces, ps, osInfo] = await Promise.all([
         si.currentLoad(),
         si.mem(),
         si.networkStats(),
         si.networkConnections(),
         si.networkInterfaces(),
-        si.processes()
+        si.processes(),
+        si.osInfo()
       ]);
+
+      // Detect WSL
+      let isWsl = false;
+      let wslVersion: number | undefined = undefined;
+      
+      const kernel = osInfo.kernel.toLowerCase();
+      if (kernel.includes('microsoft')) {
+        isWsl = true;
+        wslVersion = kernel.includes('wsl2') ? 2 : 1;
+      }
       
       setData({
         cpu,
@@ -36,6 +49,8 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
         netConn,
         interfaces: interfaces.filter(i => i.ip4 || i.ip6),
         processes: ps.list,
+        osInfo,
+        wslInfo: { isWsl, version: wslVersion },
         time: new Date().toLocaleTimeString()
       });
     };
@@ -60,15 +75,26 @@ export const Dashboard: React.FC<ToolPluginProps> = () => {
     <Box flexDirection="column" flexGrow={1}>
       {/* Header Row */}
       <Box justifyContent="space-between" borderStyle="single" borderColor="gray" paddingX={1}>
-        <Text color="green" bold>鷹 HAWK CONTROL CENTER</Text>
-        <Box>
-          <Text color="gray">Hosts: </Text>
-          {data.interfaces.map((itf, idx) => (
-            <Text key={itf.iface} color="cyan">
-              {itf.ip4}{idx < data.interfaces.length - 1 ? ', ' : ''}
-            </Text>
-          ))}
-          <Text color="gray"> | {data.time}</Text>
+        <Box flexDirection="column">
+          <Text color="green" bold>鷹 HAWK CONTROL CENTER</Text>
+          <Box>
+            <Text color="gray">OS: </Text>
+            <Text color="white">{data.osInfo.distro} {data.osInfo.release} ({data.osInfo.arch})</Text>
+            {data.wslInfo.isWsl && (
+              <Text color="cyan"> [WSL v{data.wslInfo.version}]</Text>
+            )}
+          </Box>
+        </Box>
+        <Box flexDirection="column" alignItems="flex-end">
+          <Box>
+            <Text color="gray">IPs: </Text>
+            {data.interfaces.map((itf, idx) => (
+              <Text key={itf.iface} color="cyan">
+                {itf.ip4}{idx < data.interfaces.length - 1 ? ', ' : ''}
+              </Text>
+            ))}
+          </Box>
+          <Text color="gray">{data.time}</Text>
         </Box>
       </Box>
 
