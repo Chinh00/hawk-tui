@@ -37,8 +37,7 @@ export const plugins: ToolPlugin[] = [
     description: 'Jira Cloud Board & Issues',
     component: JiraExplorer,
     subMenus: [
-      { id: 'board', name: 'Board' },
-      { id: 'issues', name: 'All Issues' },
+      { id: 'all', name: 'Explorer' },
       { id: 'config', name: 'Configuration' }
     ]
   },

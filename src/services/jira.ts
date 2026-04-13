@@ -43,6 +43,12 @@ export const jiraService = {
     return response.data;
   },
 
+  async getIssueTypes() {
+    if (!jiraClient) throw new Error('Jira not configured');
+    const response = await jiraClient.get('/rest/api/3/issuetype');
+    return response.data;
+  },
+
   async getBoards(projectKeyOrId?: string) {
     if (!jiraClient) throw new Error('Jira not configured');
     const params = projectKeyOrId ? { projectKeyOrId } : {};
@@ -50,10 +56,46 @@ export const jiraService = {
     return response.data.values;
   },
 
-  async getIssues(boardId: number) {
+  async getIssues(boardId: number, filters?: { epicKey?: string, typeName?: string, assigneeId?: string }) {
     if (!jiraClient) throw new Error('Jira not configured');
-    const response = await jiraClient.get(`/rest/agile/1.0/board/${boardId}/issue`);
+    
+    const jqlParts = [];
+    if (filters?.epicKey && filters.epicKey !== 'ALL') {
+      jqlParts.push(`(parent = "${filters.epicKey}" OR "Epic Link" = "${filters.epicKey}")`);
+    }
+    if (filters?.typeName && filters.typeName !== 'ALL') {
+      jqlParts.push(`issuetype = "${filters.typeName}"`);
+    }
+    if (filters?.assigneeId && filters.assigneeId !== 'ALL') {
+      jqlParts.push(`assignee = "${filters.assigneeId}"`);
+    }
+
+    const params: any = {};
+    if (jqlParts.length > 0) {
+      params.jql = jqlParts.join(' AND ');
+    }
+
+    const response = await jiraClient.get(`/rest/agile/1.0/board/${boardId}/issue`, { params });
     return response.data.issues;
+  },
+
+  async getUsers(projectKey: string) {
+    if (!jiraClient) throw new Error('Jira not configured');
+    const response = await jiraClient.get('/rest/api/3/user/assignable/search', {
+      params: { project: projectKey }
+    });
+    return response.data;
+  },
+
+  async getEpics(boardId: number) {
+    if (!jiraClient) throw new Error('Jira not configured');
+    try {
+      const response = await jiraClient.get(`/rest/agile/1.0/board/${boardId}/epic`);
+      return response.data.values;
+    } catch (e) {
+      // Fallback: Some boards don't support /epic endpoint, return empty list
+      return [];
+    }
   },
 
   async getIssue(issueIdOrKey: string) {

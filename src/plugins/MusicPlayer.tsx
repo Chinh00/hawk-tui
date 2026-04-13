@@ -1,9 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Text, Box, Newline, useInput } from 'ink';
+import { Text, Box, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { musicService, Song } from '../services/music.js';
 import { ToolPluginProps } from './types.js';
-import { exec, ChildProcess } from 'child_process';
+import { exec, spawn, ChildProcess } from 'child_process';
+import net from 'net';
+
+interface PlaybackInfo {
+  currentTime: number;
+  duration: number;
+  percent: number;
+}
 
 export const MusicPlayer: React.FC<ToolPluginProps> = ({ isFocused, onInputFocus }) => {
   const [query, setQuery] = useState('');
@@ -13,8 +20,62 @@ export const MusicPlayer: React.FC<ToolPluginProps> = ({ isFocused, onInputFocus
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [playback, setPlayback] = useState<PlaybackInfo>({ currentTime: 0, duration: 0, percent: 0 });
   
   const mpvProcess = useRef<ChildProcess | null>(null);
+  const pollInterval = useRef<NodeJS.Timeout | null>(null);
+  const PIPE_PATH = '\\\\.\\pipe\\mpv-hawk-tui';
+
+  const formatTime = (seconds: number) => {
+    if (!seconds || isNaN(seconds)) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const sendMpvCommand = (command: (string | number)[], callback?: (data: any) => void) => {
+    const client = net.connect(PIPE_PATH, () => {
+      client.write(JSON.stringify({ command }) + '\n');
+      if (!callback) client.end();
+    });
+
+    if (callback) {
+      client.on('data', (data) => {
+        try {
+          const response = JSON.parse(data.toString());
+          callback(response);
+        } catch (e) {}
+        client.end();
+      });
+    }
+
+    client.on('error', () => {
+      // mpv might not be running or IPC not ready
+    });
+  };
+
+  const updatePlaybackStatus = () => {
+    if (!isPlaying || isPaused) return;
+
+    // Get current position
+    sendMpvCommand(['get_property', 'time-pos'], (resPos) => {
+      if (resPos.data !== undefined) {
+        const currentTime = resPos.data;
+        // Get duration
+        sendMpvCommand(['get_property', 'duration'], (resDur) => {
+          if (resDur.data !== undefined) {
+            const duration = resDur.data;
+            setPlayback({
+              currentTime,
+              duration,
+              percent: (currentTime / duration) * 100
+            });
+          }
+        });
+      }
+    });
+  };
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -43,26 +104,41 @@ export const MusicPlayer: React.FC<ToolPluginProps> = ({ isFocused, onInputFocus
   };
 
   const playSong = (song: Song) => {
-    // Kill previous process if exists
     if (mpvProcess.current) {
       mpvProcess.current.kill();
+      mpvProcess.current = null;
     }
 
     setCurrentSong(song);
     setIsPlaying(true);
+    setIsPaused(false);
+    setPlayback({ currentTime: 0, duration: 0, percent: 0 });
 
-    // Prefer mpv for background play
-    // --no-video: only audio
-    // --ytdl-format=bestaudio: save bandwidth
-    const process = exec(`mpv --no-video --ytdl-format=bestaudio "${song.url}"`, (error) => {
-      if (error && !process.killed) {
+    const args = [
+      '--no-video',
+      '--ytdl-format=bestaudio',
+      `--input-ipc-server=${PIPE_PATH}`,
+      song.url
+    ];
+
+    const child = spawn('mpv', args);
+    
+    child.on('error', () => {
+      setIsPlaying(false);
+      exec(`start ${song.url}`);
+    });
+
+    child.on('exit', () => {
+      if (mpvProcess.current === child) {
         setIsPlaying(false);
-        // Fallback to browser if mpv is missing
-        exec(`start ${song.url}`);
+        setIsPaused(false);
+        setCurrentSong(null);
+        mpvProcess.current = null;
+        setPlayback({ currentTime: 0, duration: 0, percent: 0 });
       }
     });
 
-    mpvProcess.current = process;
+    mpvProcess.current = child;
   };
 
   const stopPlayback = () => {
@@ -71,8 +147,34 @@ export const MusicPlayer: React.FC<ToolPluginProps> = ({ isFocused, onInputFocus
       mpvProcess.current = null;
     }
     setIsPlaying(false);
+    setIsPaused(false);
     setCurrentSong(null);
+    setPlayback({ currentTime: 0, duration: 0, percent: 0 });
   };
+
+  const togglePause = () => {
+    if (isPlaying) {
+      sendMpvCommand(['cycle', 'pause']);
+      setIsPaused(!isPaused);
+    }
+  };
+
+  const seek = (seconds: number) => {
+    if (isPlaying) {
+      sendMpvCommand(['seek', seconds]);
+    }
+  };
+
+  useEffect(() => {
+    if (isPlaying && !isPaused) {
+      pollInterval.current = setInterval(updatePlaybackStatus, 1000);
+    } else {
+      if (pollInterval.current) clearInterval(pollInterval.current);
+    }
+    return () => {
+      if (pollInterval.current) clearInterval(pollInterval.current);
+    };
+  }, [isPlaying, isPaused]);
 
   useEffect(() => {
     return () => {
@@ -94,15 +196,44 @@ export const MusicPlayer: React.FC<ToolPluginProps> = ({ isFocused, onInputFocus
     if (key.upArrow) setSelectedIndex(Math.max(0, selectedIndex - 1));
     if (key.downArrow) setSelectedIndex(Math.min(songs.length - 1, selectedIndex + 1));
     if (key.return && songs[selectedIndex]) playSong(songs[selectedIndex]);
+    
+    if (input === 'p') togglePause();
+    if (key.rightArrow) isPlaying ? seek(10) : null;
+    if (key.leftArrow) isPlaying ? seek(-10) : null;
     if (input === 's') stopPlayback();
     if (input === '/') startSearch();
   });
 
+  const renderProgressBar = () => {
+    const width = 30;
+    const filled = Math.round((playback.percent / 100) * width);
+    const empty = width - filled;
+    
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Box>
+          <Text color="cyan">[</Text>
+          <Text color="green">{'='.repeat(Math.max(0, filled - 1))}</Text>
+          <Text color="green">{filled > 0 ? '>' : ''}</Text>
+          <Text color="gray">{'-'.repeat(empty)}</Text>
+          <Text color="cyan">]</Text>
+          <Text> {formatTime(playback.currentTime)} / {formatTime(playback.duration)}</Text>
+        </Box>
+      </Box>
+    );
+  };
+
   return (
     <Box flexDirection="column" flexGrow={1} padding={1}>
       <Box justifyContent="space-between" marginBottom={1}>
-        <Text bold color="magenta">🎵 My Music Explorer {isPlaying && <Text color="green"> (Playing Background...)</Text>}</Text>
-        <Text color="gray">/: Search | Enter: Play | s: Stop | Arrows: Navigate</Text>
+        <Text bold color="magenta">
+          🎵 My Music Explorer {isPlaying && (
+            <Text color={isPaused ? "yellow" : "green"}> 
+              ({isPaused ? "Paused" : "Playing Background..."})
+            </Text>
+          )}
+        </Text>
+        <Text color="gray">/: Search | Enter: Play | p: Pause | s: Stop | ←/→: Seek</Text>
       </Box>
 
       {/* Search Bar */}
@@ -140,11 +271,17 @@ export const MusicPlayer: React.FC<ToolPluginProps> = ({ isFocused, onInputFocus
         {/* Playback & Details */}
         <Box flexDirection="column" flexGrow={1} paddingLeft={2}>
           {currentSong && (
-            <Box flexDirection="column" borderStyle="double" borderColor="green" paddingX={1} marginBottom={1}>
-              <Text bold color="green">NOW PLAYING (BG)</Text>
+            <Box flexDirection="column" borderStyle="double" borderColor={isPaused ? "yellow" : "green"} paddingX={1} marginBottom={1}>
+              <Text bold color={isPaused ? "yellow" : "green"}>{isPaused ? "PAUSED" : "NOW PLAYING (BG)"}</Text>
               <Text bold>{currentSong.title}</Text>
-              <Text color="gray">Artist: {currentSong.author}</Text>
-              <Text color="yellow" dimColor>Press 's' to stop</Text>
+              <Text color="gray" wrap="truncate-end">Artist: {currentSong.author}</Text>
+              
+              {renderProgressBar()}
+
+              <Box marginTop={1}>
+                <Text color="gray">Controls: </Text>
+                <Text color="cyan">p (pause) | ←/→ (seek) | s (stop)</Text>
+              </Box>
             </Box>
           )}
 
