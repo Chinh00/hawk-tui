@@ -5,6 +5,7 @@ import { SubSidebar } from './SubSidebar.jsx';
 import { MainView } from './MainView.jsx';
 import { Help } from './Help.jsx';
 import { plugins } from '../plugins/index.js';
+import { SplashScreen } from './SplashScreen.jsx';
 
 type Pane = 'SIDEBAR' | 'SUB_SIDEBAR' | 'CONTENT';
 
@@ -15,6 +16,7 @@ export const App: React.FC = () => {
   const [activePane, setActivePane] = useState<Pane>('SIDEBAR');
   const [showHelp, setShowHelp] = useState(false);
   const [isInputActive, setIsInputActive] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const activeTool = plugins.find(p => p.id === activeToolId);
 
@@ -29,7 +31,7 @@ export const App: React.FC = () => {
   }, [activeToolId]);
 
   useInput((input, key) => {
-    // If user is typing in an input field, disable global shortcuts
+    if (isLoading) return;
     if (isInputActive) return;
 
     if (input === 'q') {
@@ -81,6 +83,10 @@ export const App: React.FC = () => {
   const handleSelectSubMenu = (item: { value: string }) => {
     setActiveSubMenuId(item.value);
   };
+
+  if (isLoading) {
+    return <SplashScreen onComplete={() => setIsLoading(false)} />;
+  }
 
   return (
     <Box padding={1} width="100%" height="100%" flexDirection="column">
